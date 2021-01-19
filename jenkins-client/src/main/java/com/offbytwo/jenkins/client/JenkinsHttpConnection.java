@@ -175,6 +175,46 @@ public interface JenkinsHttpConnection extends Closeable {
     HttpResponse post_form_with_result(String path, List<NameValuePair> data, boolean crumbFlag) throws IOException;
 
     /**
+     * Perform a POST request using form url encoding.
+     *
+     * This method was added for the purposes of creating credentials, but may be
+     * useful for other API calls as well.
+     *
+     * Unlike post and post_xml, the path is *not* modified by adding
+     * "/api/json". Additionally, the params in data are provided as both
+     * request parameters including a json parameter, *and* in the
+     * JSON-formatted StringEntity, because this is what the folder creation
+     * call required. It is unclear if any other jenkins APIs operate in this
+     * fashion.
+     *
+     * @param path path to request, can be relative or absolute
+     * @param data data to post
+     * @param crumbFlag true / false.
+     * @throws IOException in case of an error.
+     */
+    void post_form_json(String path, Map<String, Object> data, boolean crumbFlag) throws IOException;
+
+    /**
+     * Perform a POST request using multipart-form.
+     *
+     * This method was added for the purposes of creating some types of credentials, but may be
+     * useful for other API calls as well.
+     *
+     * Unlike post and post_xml, the path is *not* modified by adding
+     * "/api/json". Additionally, the params in data are provided as both
+     * request parameters including a json parameter, *and* in the
+     * JSON-formatted StringEntity, because this is what the folder creation
+     * call required. It is unclear if any other jenkins APIs operate in this
+     * fashion.
+     *
+     * @param path path to request, can be relative or absolute
+     * @param data data to post
+     * @param crumbFlag true / false.
+     * @throws IOException in case of an error.
+     */
+    void post_multipart_form_json(String path, Map<String, Object> data, boolean crumbFlag) throws IOException;
+
+    /**
      * Post a text entity to the given URL using the default content type
      *
      * @param path The path.

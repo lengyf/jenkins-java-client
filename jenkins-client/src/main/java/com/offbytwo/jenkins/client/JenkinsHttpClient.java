@@ -17,7 +17,6 @@ import com.offbytwo.jenkins.model.ExtractHeader;
 import net.sf.json.JSONObject;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
-import org.apache.http.Header;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.NameValuePair;
@@ -349,6 +348,95 @@ public class JenkinsHttpClient implements JenkinsHttpConnection {
      * {@inheritDoc}
      */
     @Override
+    public void post_form_json(String path, Map<String, Object> data, boolean crumbFlag) throws IOException {
+        HttpPost request;
+        if (data != null) {
+            // https://gist.github.com/stuart-warren/7786892 was slightly
+            // helpful here
+            List<String> queryParams = Lists.newArrayList();
+            queryParams.add("json=" + EncodingUtils.encodeParam(JSONObject.fromObject(data).toString()));
+            String value = mapper.writeValueAsString(data);
+            StringEntity stringEntity = new StringEntity(value, ContentType.APPLICATION_FORM_URLENCODED);
+            request = new HttpPost(UrlUtils.toNoApiUri(uri, context, path) + StringUtils.join(queryParams, "&"));
+            request.setEntity(stringEntity);
+        } else {
+            request = new HttpPost(UrlUtils.toNoApiUri(uri, context, path));
+        }
+
+        if (crumbFlag == true) {
+            Crumb crumb = get("/crumbIssuer", Crumb.class);
+            if (crumb != null) {
+                request.addHeader(new BasicHeader(crumb.getCrumbRequestField(), crumb.getCrumb()));
+            }
+        }
+
+        HttpResponse response = client.execute(request, localContext);
+        jenkinsVersion = ResponseUtils.getJenkinsVersion(response);
+
+        try {
+            httpResponseValidator.validateResponse(response);
+        } finally {
+            EntityUtils.consume(response.getEntity());
+            releaseConnection(request);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void post_multipart_form_json(String path, Map<String, Object> data, boolean crumbFlag) throws IOException {
+        HttpPost request;
+        if (data != null) {
+            MultipartEntityBuilder builder = MultipartEntityBuilder.create();
+            builder.setMode(HttpMultipartMode.BROWSER_COMPATIBLE);
+            for (Map.Entry<String, Object> entry : data.entrySet()) {
+                String fieldName = entry.getKey();
+                Object fieldValue = entry.getValue();
+                if (fieldValue instanceof String) {
+                    builder.addTextBody(fieldName, (String) fieldValue);
+                } else if (fieldValue instanceof byte[]) {
+                    builder.addBinaryBody(fieldName, (byte[]) fieldValue);
+                } else if (fieldValue instanceof FormBinaryField) {
+                    FormBinaryField binaryField = (FormBinaryField) fieldValue;
+                    builder.addBinaryBody(fieldName, binaryField.getContent(), ContentType.create(binaryField.getContentType()), binaryField.getFileName());
+                } else if (fieldValue instanceof File) {
+                    builder.addBinaryBody(fieldName, (File) fieldValue);
+                } else if (fieldValue instanceof InputStream) {
+                    builder.addBinaryBody(fieldName, (InputStream) fieldValue);
+                } else {
+                    builder.addTextBody(fieldName, JSONObject.fromObject(fieldValue).toString());
+                }
+            }
+            request = new HttpPost(UrlUtils.toNoApiUri(uri, context, path));
+            request.setEntity(builder.build());
+        } else {
+            request = new HttpPost(UrlUtils.toNoApiUri(uri, context, path));
+        }
+
+        if (crumbFlag == true) {
+            Crumb crumb = get("/crumbIssuer", Crumb.class);
+            if (crumb != null) {
+                request.addHeader(new BasicHeader(crumb.getCrumbRequestField(), crumb.getCrumb()));
+            }
+        }
+
+        HttpResponse response = client.execute(request, localContext);
+        jenkinsVersion = ResponseUtils.getJenkinsVersion(response);
+
+        try {
+            httpResponseValidator.validateResponse(response);
+        } finally {
+            EntityUtils.consume(response.getEntity());
+            releaseConnection(request);
+        }
+    }
+
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
     public String post_xml(String path, String xml_data) throws IOException {
         return post_xml(path, xml_data, true);
     }
@@ -504,9 +592,6 @@ public class JenkinsHttpClient implements JenkinsHttpConnection {
         this.localContext = localContext;
     }
 
-    
-    
-    
     
     private <T extends BaseModel> T objectFromResponse(Class<T> cls, HttpResponse response) throws IOException {
         InputStream content = response.getEntity().getContent();

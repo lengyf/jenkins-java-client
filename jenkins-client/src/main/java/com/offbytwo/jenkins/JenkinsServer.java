@@ -11,8 +11,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
-import javax.xml.bind.JAXBException;
-
+import com.offbytwo.jenkins.model.credentials.JobCredentialManager;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.HttpResponseException;
 import org.apache.http.entity.ContentType;
@@ -46,6 +45,17 @@ import com.offbytwo.jenkins.model.QueueReference;
 import com.offbytwo.jenkins.model.View;
 import java.io.Closeable;
 
+import com.offbytwo.jenkins.model.*;
+import com.offbytwo.jenkins.model.credentials.Credential;
+import com.offbytwo.jenkins.model.credentials.CredentialManager;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.Predicate;
+
+import javax.xml.bind.JAXBException;
+import java.rmi.server.ExportException;
+import java.util.Arrays;
+
+
 /**
  * The main starting point for interacting with a Jenkins server.
  */
@@ -56,6 +66,8 @@ public class JenkinsServer implements Closeable {
      * The transport client instance to use.
      */
     private final JenkinsHttpConnection client;
+
+    private CredentialManager credentialManager;
 
     /**
      * Create a new Jenkins server reference given only the server address
@@ -971,4 +983,173 @@ public class JenkinsServer implements Closeable {
 			LOGGER.error("safeExit()", e);
 		}
 	}
+
+    /**
+     * Parses the provided job name for folders to get the full path for the job.
+     * @param jobName the fullName of the job.
+     * @return the path of the job including folders if present.
+     */
+    private String parseFullName(String jobName) {
+        if (!jobName.contains("/")) {
+            return jobName;
+        }
+
+        List<String> foldersAndJob = Arrays.asList(jobName.split("/"));
+
+        String foldersAndJobName = "";
+
+        for (int i = 0; i < foldersAndJob.size(); i++) {
+            foldersAndJobName += foldersAndJob.get(i);
+
+            if (i != foldersAndJob.size() - 1) {
+                foldersAndJobName += "/job/";
+            }
+        }
+
+        return foldersAndJobName;
+
+    }
+
+    /**
+     * List the credentials from the Jenkins server.
+     *
+     * @return a hash map of the credentials. The key is the id of each credential.
+     * @throws IOException
+     */
+    public Map<String, Credential> listCredentials() throws IOException {
+        return this.getCredentialManager().listCredentials();
+    }
+
+    /**
+     * List the credentials from the Jenkins server.
+     *
+     * @return a hash map of the credentials. The key is the id of each credential.
+     * @throws IOException
+     */
+    public Map<String, Credential> listCredentials(String jobName) throws IOException {
+        return this.getCredentialManager(jobName).listCredentials();
+    }
+
+    /**
+     * Create the given credential
+     *
+     * @param credential a credential instance
+     * @param crumbFlag
+     * @throws IOException
+     */
+    public void createCredential(Credential credential, boolean crumbFlag) throws IOException {
+        this.getCredentialManager().createCredential(credential, crumbFlag);
+    }
+
+    /**
+     * Create the given credential
+     *
+     * @param credential a credential instance
+     * @param crumbFlag
+     * @throws IOException
+     */
+    public void createCredential(String jobName, Credential credential, boolean crumbFlag) throws IOException {
+        this.getCredentialManager(jobName).createCredential(credential, crumbFlag);
+    }
+
+    /**
+     * Update an existing credential
+     * @param credentialId the id of the credential
+     * @param credential the updated credential instance
+     * @param crumbFlag
+     * @throws IOException
+     */
+    public void updateCredential(String credentialId, Credential credential, boolean crumbFlag) throws IOException {
+        this.getCredentialManager().updateCredential(credentialId, credential, crumbFlag);
+    }
+
+    /**
+     * Update an existing credential
+     * @param credentialId the id of the credential
+     * @param credential the updated credential instance
+     * @param crumbFlag
+     * @throws IOException
+     */
+    public void updateCredential(String jobName, String credentialId, Credential credential, boolean crumbFlag) throws IOException {
+        this.getCredentialManager(jobName).updateCredential(credentialId, credential, crumbFlag);
+    }
+
+    /**
+     * Delete an existing credential
+     *
+     * @param credentialId the id of the credential to delete
+     * @param crumbFlag
+     * @throws IOException
+     */
+    public void deleteCredential(String credentialId, boolean crumbFlag) throws IOException {
+        this.getCredentialManager().deleteCredential(credentialId, crumbFlag);
+    }
+
+    /**
+     * Delete an existing credential
+     *
+     * @param credentialId the id of the credential to delete
+     * @param crumbFlag
+     * @throws IOException
+     */
+    public void deleteCredential(String jobName, String credentialId, boolean crumbFlag) throws IOException {
+        this.getCredentialManager(jobName).deleteCredential(credentialId, crumbFlag);
+    }
+
+    /**
+     * Return the credentialManager instance. Will initialise it if it's never used before.
+     *
+     * @return the credentialManager instance
+     * @throws IOException
+     */
+    private CredentialManager getCredentialManager() throws IOException {
+        if (this.credentialManager == null) {
+            Plugin credentialPlugin = findPluginWithName("credentials");
+            if (credentialPlugin == null) {
+                throw new ExportException("credential plugin is not installed");
+            }
+            String version = credentialPlugin.getVersion();
+            this.credentialManager = new CredentialManager(version, this.client);
+        }
+        return this.credentialManager;
+    }
+
+    /**
+     * Return the credentialManager instance. Will initialise it if it's never used before.
+     *
+     * @return the credentialManager instance
+     * @throws IOException
+     */
+    private CredentialManager getCredentialManager(String jobName) throws IOException {
+        Plugin credentialPlugin = findPluginWithName("credentials");
+        if (credentialPlugin == null) {
+            throw new ExportException("credential plugin is not installed");
+        }
+        String version = credentialPlugin.getVersion();
+        return new JobCredentialManager(jobName, version, this.client);
+    }
+
+    /**
+     * Find a plugin that matches the given short name
+     *
+     * @param pluginShortName the short name of the plugin to find
+     * @return the pluin object that is found. Can be null if no match found.
+     * @throws IOException
+     */
+    public Plugin findPluginWithName(final String pluginShortName) throws IOException {
+        List<Plugin> plugins = this.getPluginManager().getPlugins();
+        Object foundPlugin = CollectionUtils.find(plugins, new Predicate() {
+            @Override
+            public boolean evaluate(Object o) {
+                Plugin p = (Plugin) o;
+                if (p.getShortName().equalsIgnoreCase(pluginShortName)) {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+        });
+
+        return foundPlugin == null ? null : (Plugin) foundPlugin;
+    }
 }
